@@ -1,0 +1,53 @@
+# ---- Qt / C++ 构建产物 ----
+build/
+build-*/
+*.pro.user
+*.qmake.stash
+*.o
+*.obj
+*.exe
+*.dll
+*.lib
+*.pdb
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# ---- Qt Creator ----
+*.autosave
+*.user.*
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+# ---- 模型 / 大文件（虽然不会有，但放着也没事）----
+*.pth
+*.pt
+*.ckpt
+*.onnx
+*.bin
+*.h5
+*.safetensors
+MeloTTS/
+openvoice/
+pretrained_models/
+checkpoints/
+
+# ---- 运行产生的临时文件 ----
+temp_chunks/
+outputs/
+output/
+*.wav
+*.log
+config.ini
+
+# ---- IDE / 系统 ----
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
