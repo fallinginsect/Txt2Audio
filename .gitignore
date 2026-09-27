@@ -51,3 +51,8 @@ config.ini
 .idea/
 Thumbs.db
 .DS_Store
+
+*.user
+CMakeLists.txt.user
+.qtc_clangd/
+.qtcreator/
