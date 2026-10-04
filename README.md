@@ -121,9 +121,14 @@ _TAGGER = MeCab.Tagger(f'-r "{os.path.join(dic_dir, "mecabrc")}" -d "{dic_dir}"'
 ### 10. 启动服务
 
 执行前请确保已激活 melotts 虚拟环境：
-双击start_melo.bat，注意如果你环境名不是melotts
+
+双击start_melo.bat
+
+注意如果你环境名不是melotts
 或者你移动了start_melo.bat让它和melo_server.py不是一个目录下
 就无法正常启动，有需求可以自己修改.bat，里面的指令很简单
+
+或者你在命令行环境下
 ```
 cd server
 start_melo.bat
