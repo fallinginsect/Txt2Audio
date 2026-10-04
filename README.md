@@ -8,7 +8,7 @@
 - 自动合并分段为完整 WAV 文件
 
 ## 发行版用法
-前往 [Releases](链接) 下载最新版 ZIP，解压后双击 `Txt2Audio.exe` 即可运行。
+前往 [Releases](https://github.com/fallinginsect/Txt2Audio/releases) 下载最新版 ZIP，解压后双击 `Txt2Audio.exe` 即可运行。
 
 > **注意**：使用前需先启动本地 MeloTTS 服务端（见下文部署步骤），否则会提示网络请求失败。
 
@@ -121,7 +121,9 @@ _TAGGER = MeCab.Tagger(f'-r "{os.path.join(dic_dir, "mecabrc")}" -d "{dic_dir}"'
 ### 10. 启动服务
 
 执行前请确保已激活 melotts 虚拟环境：
-
+双击start_melo.bat，注意如果你环境名不是melotts
+或者你移动了start_melo.bat让它和melo_server.py不是一个目录下
+就无法正常启动，有需求可以自己修改.bat，里面的指令很简单
 ```
 cd server
 start_melo.bat
