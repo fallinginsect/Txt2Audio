@@ -6,7 +6,7 @@
 
 class TextSplitter {
 public:
-    static QVector<QString> split(const QString& text, int maxLen = 4000);
+    static QVector<QString> split(const QString& text, int maxLen = 2000);
 };
 
 #endif // TEXTSPLITTER_H
