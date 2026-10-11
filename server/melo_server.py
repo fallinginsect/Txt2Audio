@@ -38,13 +38,14 @@ async def synthesize(req: TTSRequest):
         raise HTTPException(status_code=400, detail="文本不能为空")
     if len(req.text) > 4000:
         raise HTTPException(status_code=413, detail="文本超过4000字限制")
+    text = req.text.strip().replace('_', ' ')   
     
     # 生成临时 WAV 文件
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
         tmp_path = f.name
     
     # 调用 MeloTTS 生成音频
-    model.tts_to_file(req.text, req.speaker_id, tmp_path, speed=req.speed)
+    model.tts_to_file(text, req.speaker_id, tmp_path, speed=req.speed)
     
     # 读取并转 Base64 返回
     with open(tmp_path, "rb") as audio_file:
