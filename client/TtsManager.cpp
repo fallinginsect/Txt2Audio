@@ -65,25 +65,46 @@ void TtsManager::synthesizeFile(const QString& inputFile, const QString& outputD
 
 void TtsManager::sendAllChunks(int speaker_id, double speed)
 {
-    for (int i = 0; i < totalChunks; ++i) {
-        // 每个分片创建独立的TtsClient，避免并发请求互相干扰
-        TtsClient* client = new TtsClient(m_baseUrl, this);//传TTSmanager作为父对象，如果manager析构了，会先释放所有的client内存
-        m_clientMap[client] = i;//当前分片序号
+    // 缓存参数，给 sendNextChunks 用
+    m_speakerId = speaker_id;
+    m_speed = speed;
 
-        // 连接成功信号：lambda捕获分片序号，解决并发对应问题
+    // 所有分片索引入队
+    m_pendingChunks.clear();
+    for (int i = 0; i < totalChunks; ++i) {
+        m_pendingChunks.enqueue(i);
+    }
+    m_activeCount = 0;
+
+    // 启动发送
+    sendNextChunks();
+}
+
+void TtsManager::sendNextChunks()
+{
+    // 只在未满并发 且 队列非空时发送
+    while (m_activeCount < kMaxConcurrent && !m_pendingChunks.isEmpty()) {
+        if (failed) return;
+
+        int i = m_pendingChunks.dequeue();
+        m_activeCount++;
+
+        TtsClient* client = new TtsClient(m_baseUrl, this);
+        m_clientMap[client] = i;
+
+        // ========== 成功回调 ==========
         connect(client, &TtsClient::success, this,
                 [this, client, i](const QByteArray& audioBase64)
                 {
-                    if (failed) {//前面有个分片出问题了，后面的作废，初版本先这样
-                        client->deleteLater();//后面我们再想什么重传啊等等
+                    m_activeCount--;
+
+                    if (failed) {
+                        client->deleteLater();
                         m_clientMap.remove(client);
                         return;
                     }
 
-                    // Base64解码得到原始WAV二进制
                     QByteArray audioData = QByteArray::fromBase64(audioBase64);
-
-                    // 保存为分片临时文件
                     QString tempPath = getTempFilePath(i);
                     QFile tempFile(tempPath);
                     if (!tempFile.open(QIODevice::WriteOnly)) {
@@ -100,20 +121,23 @@ void TtsManager::sendAllChunks(int speaker_id, double speed)
                     receivedCount++;
                     emit progressUpdated(receivedCount, totalChunks);
 
-                    // 清理当前客户端
                     client->deleteLater();
                     m_clientMap.remove(client);
 
-                    // 所有分片接收完成，执行合并
+                    //完成后补位
                     if (receivedCount == totalChunks) {
                         mergeAll();
+                    } else {
+                        sendNextChunks();
                     }
                 });
 
-        // 连接错误信号
+        // ========== 失败回调 ==========
         connect(client, &TtsClient::error, this,
                 [this, client, i](const QString& msg)
                 {
+                    m_activeCount--;
+
                     if (failed) {
                         client->deleteLater();
                         m_clientMap.remove(client);
@@ -123,13 +147,16 @@ void TtsManager::sendAllChunks(int speaker_id, double speed)
                     failed = true;
                     emit errorOccurred(QString("Chunk %1 error: %2").arg(i).arg(msg));
 
+                    // 清空队列，不再发新请求
+                    m_pendingChunks.clear();
+
                     client->deleteLater();
                     m_clientMap.remove(client);
                     cleanup();
                 });
 
-        // 发起当前分片的合成请求
-        client->synthesize(chunks[i], speaker_id, speed);
+        // 发起请求
+        client->synthesize(chunks[i], m_speakerId, m_speed);
     }
 }
 

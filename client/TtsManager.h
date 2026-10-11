@@ -5,6 +5,7 @@
 #include <QVector>
 #include <QString>
 #include <QMap>
+#include <QQueue>
 #include "TtsClient.h"
 
 class TtsManager : public QObject {
@@ -36,6 +37,13 @@ private:
     QString tempDir;
     QString outputFilePath; // 最终输出文件路径（成员变量，避免局部屏蔽）
     QString m_baseUrl;      // 服务端地址
+
+    QQueue<int> m_pendingChunks;                 // 待发送的分片索引队列
+    int m_activeCount = 0;                       // 当前在飞的请求数
+    static constexpr int kMaxConcurrent = 5;     // 最大并发数
+    int m_speakerId = 1;                         // 缓存参数
+    double m_speed = 1.0;                        // 缓存参数
+    void sendNextChunks();                       // 新增函数声明
 };
 
 #endif // TTSMANAGER_H
