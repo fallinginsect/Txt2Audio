@@ -3,6 +3,7 @@
 #include "WavUtils.h"
 #include <QFile>
 #include <QDir>
+#include <QStringList>
 #include <QDebug>
 
 TtsManager::TtsManager(QObject* parent, const QString& baseUrl)
@@ -36,6 +37,16 @@ void TtsManager::synthesizeFile(const QString& inputFile, const QString& outputD
     QByteArray rawData = file.readAll();
     QString fullText = QString::fromUtf8(rawData);
     file.close();
+
+    QStringList lines = fullText.split('\n');
+    for (int i = 0; i < lines.size(); ++i) {
+        QString line = lines[i].trimmed();
+        if (!line.isEmpty() && !QString("。！？；：.").contains(line.back())) {
+            lines[i] = lines[i] + "。";
+        }
+    }
+    fullText = lines.join("\n");
+
 
     // 2. 文本分片
     chunks = TextSplitter::split(fullText);
