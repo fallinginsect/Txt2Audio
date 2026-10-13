@@ -5,6 +5,8 @@ from melo.api import TTS
 import tempfile
 import os
 import base64
+import numpy as np
+import soundfile as sf
 
 app = FastAPI()
 
@@ -32,6 +34,34 @@ async def get_speakers():
         })
     return {"speakers": speaker_list}
 
+
+def normalize_loudness(wav_path, target_db=-20.0):
+    """对 WAV 做整体响度归一化"""
+    data, sr = sf.read(wav_path, dtype='float32')
+    
+    # 计算 RMS
+    if data.ndim > 1:
+        rms = np.sqrt(np.mean(data ** 2, axis=0)).mean()
+    else:
+        rms = np.sqrt(np.mean(data ** 2))
+    
+    if rms < 1e-6:
+        return  # 静音，不动
+    
+    current_db = 20 * np.log10(rms)
+    gain = 10 ** ((target_db - current_db) / 20)
+    
+    data = data * gain
+    
+    # 防止削波
+    peak = np.max(np.abs(data))
+    if peak > 0.99:
+        data = data * (0.99 / peak)
+    
+    sf.write(wav_path, data, sr)
+
+
+
 @app.post("/synthesize")
 async def synthesize(req: TTSRequest):
     if not req.text.strip():
@@ -46,6 +76,7 @@ async def synthesize(req: TTSRequest):
     
     # 调用 MeloTTS 生成音频
     model.tts_to_file(text, req.speaker_id, tmp_path, speed=req.speed)
+    normalize_loudness(tmp_path, target_db=-20.0)
     
     # 读取并转 Base64 返回
     with open(tmp_path, "rb") as audio_file:
@@ -59,4 +90,5 @@ async def health():
     return {"status": "ok"}
 
 if __name__ == "__main__":
+    '''运行这个文件的时候才启动服务'''
     uvicorn.run(app, host="127.0.0.1", port=8000)
