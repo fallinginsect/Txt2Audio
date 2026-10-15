@@ -54,6 +54,11 @@ private:
     TtsManager* m_ttsManager;
     QNetworkAccessManager* m_netMgr;
 
+    //初始化失败的时候重试
+    int m_voiceRetryCount = 0;
+    static constexpr int kMaxVoiceRetry = 10;
+    void retryLoadVoiceOptions();
+
     void setupUi();
     void connectSignals();
 };

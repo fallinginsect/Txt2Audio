@@ -12,6 +12,7 @@
 #include <QProgressBar>
 #include <QFile>
 #include <QFileDialog>
+#include <Qtimer>
 #include <QMessageBox>
 #include <QNetworkReply>
 #include <QJsonDocument>
@@ -290,12 +291,25 @@ void MainWindow::onSpeakersLoaded()
     if (!reply) return;
 
     if (reply->error() != QNetworkReply::NoError) {
-        m_statusLabel->setText("警告：音色列表加载失败，请检查服务端");
-        m_voiceCombo->addItem("默认音色", 1);
         reply->deleteLater();
+        m_voiceRetryCount++;
+
+        if (m_voiceRetryCount <= kMaxVoiceRetry) {
+            m_statusLabel->setText(
+                QString("等待服务端启动... (%1/%2)")
+                    .arg(m_voiceRetryCount).arg(kMaxVoiceRetry));
+            QTimer::singleShot(3000, this, &MainWindow::retryLoadVoiceOptions);
+        } else {
+            m_statusLabel->setText("服务端连接失败，请手动重启客户端");
+            m_voiceCombo->addItem("默认音色", 1);
+        }
         return;
     }
 
+    // ===== 成功：重置计数 =====
+    m_voiceRetryCount = 0;
+
+    // ===== 下面就是你贴的解析逻辑 =====
     QByteArray data = reply->readAll();
     QJsonDocument doc = QJsonDocument::fromJson(data);
     QJsonArray speakers = doc.object()["speakers"].toArray();
@@ -307,6 +321,11 @@ void MainWindow::onSpeakersLoaded()
 
     m_statusLabel->setText("音色列表加载完成");
     reply->deleteLater();
+}
+
+void MainWindow::retryLoadVoiceOptions()
+{
+    loadVoiceOptions();
 }
 
 // ==============================
