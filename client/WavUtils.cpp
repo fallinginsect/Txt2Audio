@@ -1,5 +1,7 @@
 #include "WavUtils.h"
 #include <QDebug>
+#include <QFileInfo>
+#include <Qdir>
 
 bool WavUtils::readWavFile(const QString& filePath, QByteArray& pcmData, WavHeader& header) {
     QFile file(filePath);//对应音频文件的路径
@@ -43,7 +45,12 @@ bool WavUtils::writeWavFile(const QString& filePath, const QByteArray& pcmData, 
     return true;
 }
 
-bool WavUtils::mergeWavFiles(const QStringList& inputFiles, const QString& outputFile) {
+static bool mergeWavFiles(const QStringList& inputFiles, const QString& outputFile) {
+
+    using WavUtils::readWavFile;
+    using WavUtils::writeWavFile;
+
+
     if (inputFiles.isEmpty()) return false;
     QByteArray mergedPcm;
     WavHeader firstHeader;
@@ -72,4 +79,65 @@ bool WavUtils::mergeWavFiles(const QStringList& inputFiles, const QString& outpu
     if (!headerRead) return false;
     // 写入合并后的文件
     return writeWavFile(outputFile, mergedPcm, firstHeader);
+}
+
+QStringList WavUtils::mergeWavFilesSplit(const QStringList& inputFiles,
+                                         const QString& outputBasePath,
+                                         qint64 maxBytesPerFile) {
+    QStringList outputFiles;
+    if (inputFiles.isEmpty()) return outputFiles;
+
+    QByteArray currentPcm;      // 攒数据
+    WavHeader header;
+    bool headerRead = false;
+    int partIndex = 1;          // 记录当前是第几个文件
+
+    // 从目标路径里拆出文件夹和文件名（比如 output.wav 拆成 "目录" 和 "output"）
+    QString dir = QFileInfo(outputBasePath).absolutePath();
+    QString baseName = QFileInfo(outputBasePath).completeBaseName();
+
+    // 这是一个辅助小函数（Lambda），用来把箱子里的数据写到硬盘
+    auto flushPart = [&]() -> bool {
+        if (currentPcm.isEmpty() || !headerRead) return false;
+
+        // 生成文件名，比如 output_part1.wav
+        QString partPath = QDir(dir).filePath(
+            QString("%1_part%2.wav").arg(baseName).arg(partIndex++)
+            );
+
+        if (!writeWavFile(partPath, currentPcm, header)) return false;
+
+        outputFiles << partPath; // 把新生成的文件路径记下来
+        currentPcm.clear();      // 清空箱子，准备装下一批
+        return true;
+    };
+
+    // 开始遍历所有的小分片
+    for (const QString& filePath : inputFiles) {
+        QByteArray pcm;
+        WavHeader h;
+        if (!readWavFile(filePath, pcm, h)) return outputFiles;
+
+        // 如果是第一个分片，记下它的音频格式（采样率等）
+        if (!headerRead) {
+            header = h;
+            headerRead = true;
+        } else if (h.sampleRate != header.sampleRate) {
+            // 格式不一致就不合并了，直接返回,虽然不太可能出现这种情况，目前的话
+            return outputFiles;
+        }
+
+        //核心逻辑：如果加上这一片会超过 2GB，且箱子里已经有东西了
+        if (!currentPcm.isEmpty() && (currentPcm.size() + pcm.size() > maxBytesPerFile)) {
+            if (!flushPart()) return outputFiles; // 把当前的写出去，清空箱子
+        }
+
+        // 把这一片装进箱子
+        currentPcm.append(pcm);
+    }
+
+    // 循环结束后，箱子里可能还有剩下的最后一点，写出去
+    flushPart();
+
+    return outputFiles;
 }

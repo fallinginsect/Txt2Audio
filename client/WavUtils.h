@@ -34,7 +34,10 @@ struct WavHeader {
 namespace WavUtils {
 bool readWavFile(const QString& filePath, QByteArray& pcmData, WavHeader& header);
 bool writeWavFile(const QString& filePath, const QByteArray& pcmData, const WavHeader& header);
-bool mergeWavFiles(const QStringList& inputFiles, const QString& outputFile);
+// 新增：支持按大小切分的合并，返回生成的文件路径列表
+QStringList mergeWavFilesSplit(const QStringList& inputFiles,
+                                      const QString& outputBasePath,
+                                      qint64 maxBytesPerFile = 2LL * 1024 * 1024 * 1024);
 }
 
 #endif // WAVUTILS_H

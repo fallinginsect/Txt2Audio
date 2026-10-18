@@ -174,24 +174,32 @@ void TtsManager::sendNextChunks()
 void TtsManager::mergeAll()
 {
     if (failed) {
-        cleanup();//发生错误就清除
+        cleanup();
         return;
     }
 
-    // 按索引顺序收集所有分片文件（保证顺序正确，和发送顺序无关）
+    // 1. 收集所有分片路径
     QStringList chunkFiles;
     for (int i = 0; i < totalChunks; ++i) {
         chunkFiles << getTempFilePath(i);
     }
 
-    // 调用工具类合并WAV
-    if (!WavUtils::mergeWavFiles(chunkFiles, outputFilePath)) {
+    // 2. 调用新函数，传入 2GB 作为阈值 (2LL * 1024 * 1024 * 1024),注意，单位是byte，字节
+    QStringList outputFiles = WavUtils::mergeWavFilesSplit(
+        chunkFiles, outputFilePath, 2LL * 1024 * 1024 * 1024);
+
+    // 3. 如果什么都没生成，报错
+    if (outputFiles.isEmpty()) {
         emit errorOccurred("Failed to merge audio files");
         cleanup();
         return;
     }
 
-    emit synthesisFinished(outputFilePath);
+    // 4. 发送完成信号
+    // outputFiles 可能只有 1 个文件，也可能有多个文件（如果你合成的东西超大）
+    // 我们把多个路径用换行符 "\n" 拼起来，直接传给 UI
+    emit synthesisFinished(outputFiles.join("\n"));
+
     cleanup();
 }
 
