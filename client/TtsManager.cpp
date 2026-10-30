@@ -13,20 +13,49 @@ TtsManager::TtsManager(QObject* parent, const QString& baseUrl)
     , failed(false)
     , m_baseUrl(baseUrl)
 {
-    // 不再自己创建QNetworkAccessManager，所有网络请求全部委托给TtsClient
+    m_client = new TtsClient(baseUrl, this);
+    connect(m_client, &TtsClient::success, this, &TtsManager::onChunkSuccess);
+    connect(m_client, &TtsClient::error, this, &TtsManager::onChunkError);
 }
+
+void TtsManager::cancelTask(const QString& reason)
+{
+    if (failed) return; // 已经停了就不重复停了
+    failed = true;
+
+    qDebug() << "取消任务:" << reason;
+
+    m_pendingChunks.clear();
+
+    // 通知服务端
+    QNetworkAccessManager* mgr = new QNetworkAccessManager(this);
+    QUrl url(m_baseUrl + "/cancel");
+    mgr->post(QNetworkRequest(url), QByteArray());
+
+    m_client->abortAll();
+
+
+    emit errorOccurred(reason);
+    cleanup();
+}
+
 
 void TtsManager::synthesizeFile(const QString& inputFile, const QString& outputDir,
                                 int speaker_id, double speed)
 {
+    // 重置服务端状态
+    QNetworkAccessManager* mgr = new QNetworkAccessManager(this);
+    QUrl url(m_baseUrl + "/reset");
+    mgr->post(QNetworkRequest(url), QByteArray());
+
     //  每次新任务先重置所有状态
     chunks.clear();
-    m_clientMap.clear();
     totalChunks = 0;
     receivedCount = 0;
     failed = false;
     tempDir.clear();
     outputFilePath.clear();
+    m_retryCounts.clear();
 
     // 1. 读取文本文件（强制UTF-8解码，避免乱码）
     QFile file(inputFile);
@@ -38,6 +67,7 @@ void TtsManager::synthesizeFile(const QString& inputFile, const QString& outputD
     QString fullText = QString::fromUtf8(rawData);
     file.close();
 
+    //现预处理，如果有换行但是结尾没有标点的地方我们加上标点来让输出的停顿合理
     QStringList lines = fullText.split('\n');
     for (int i = 0; i < lines.size(); ++i) {
         QString line = lines[i].trimmed();
@@ -93,82 +123,70 @@ void TtsManager::sendAllChunks(int speaker_id, double speed)
 
 void TtsManager::sendNextChunks()
 {
-    // 只在未满并发 且 队列非空时发送
     while (m_activeCount < kMaxConcurrent && !m_pendingChunks.isEmpty()) {
         if (failed) return;
 
         int i = m_pendingChunks.dequeue();
         m_activeCount++;
 
-        TtsClient* client = new TtsClient(m_baseUrl, this);
-        m_clientMap[client] = i;
-
-        // ========== 成功回调 ==========
-        connect(client, &TtsClient::success, this,
-                [this, client, i](const QByteArray& audioBase64)
-                {
-                    m_activeCount--;
-
-                    if (failed) {
-                        client->deleteLater();
-                        m_clientMap.remove(client);
-                        return;
-                    }
-
-                    QByteArray audioData = QByteArray::fromBase64(audioBase64);
-                    QString tempPath = getTempFilePath(i);
-                    QFile tempFile(tempPath);
-                    if (!tempFile.open(QIODevice::WriteOnly)) {
-                        failed = true;
-                        emit errorOccurred(QString("Cannot write temp file for chunk %1").arg(i));
-                        client->deleteLater();
-                        m_clientMap.remove(client);
-                        cleanup();
-                        return;
-                    }
-                    tempFile.write(audioData);
-                    tempFile.close();
-
-                    receivedCount++;
-                    emit progressUpdated(receivedCount, totalChunks);
-
-                    client->deleteLater();
-                    m_clientMap.remove(client);
-
-                    //完成后补位
-                    if (receivedCount == totalChunks) {
-                        mergeAll();
-                    } else {
-                        sendNextChunks();
-                    }
-                });
-
-        // ========== 失败回调 ==========
-        connect(client, &TtsClient::error, this,
-                [this, client, i](const QString& msg)
-                {
-                    m_activeCount--;
-
-                    if (failed) {
-                        client->deleteLater();
-                        m_clientMap.remove(client);
-                        return;
-                    }
-
-                    failed = true;
-                    emit errorOccurred(QString("Chunk %1 error: %2").arg(i).arg(msg));
-
-                    // 清空队列，不再发新请求
-                    m_pendingChunks.clear();
-
-                    client->deleteLater();
-                    m_clientMap.remove(client);
-                    cleanup();
-                });
-
-        // 发起请求
-        client->synthesize(chunks[i], m_speakerId, m_speed);
+        //
+        m_client->synthesize(i, chunks[i], m_speakerId, m_speed);
     }
+}
+
+void TtsManager::onChunkSuccess(int chunkIndex, const QByteArray& audioBase64)
+{
+    m_activeCount--; // 在飞请求数减一
+
+    // 如果整个任务已经被取消或彻底失败，直接丢弃这个迟到的数据
+    if (failed) return;
+
+    // 1. 解码并保存为分片临时文件
+    QByteArray audioData = QByteArray::fromBase64(audioBase64);
+    QString tempPath = getTempFilePath(chunkIndex);
+    QFile tempFile(tempPath);
+
+    if (!tempFile.open(QIODevice::WriteOnly)) {
+        // 如果写文件失败，属于严重的本地IO错误，直接取消整个任务
+        cancelTask(QString("无法写入临时文件，分片：%1").arg(chunkIndex));
+        return;
+    }
+
+    tempFile.write(audioData);
+    tempFile.close();
+
+    // 2. 更新进度
+    receivedCount++;
+    emit progressUpdated(receivedCount, totalChunks);
+
+    // 3. 检查是否全部完成
+    if (receivedCount == totalChunks) {
+        mergeAll(); // 所有分片到齐，开始合并
+    } else {
+        sendNextChunks(); // 还没完，继续从队列里取下一个补位
+    }
+}
+
+void TtsManager::onChunkError(int chunkIndex, const QString& msg)
+{
+    m_activeCount--; // 在飞请求数减一
+
+    // 如果任务已经被取消了，忽略这个错误
+    if (failed) return;
+
+    // 1. 记录该分片的失败次数
+    m_retryCounts[chunkIndex]++;
+
+    // 2. 如果失败次数小于 3，重新塞回队列头部进行重试
+    if (m_retryCounts[chunkIndex] < 3) {
+        qDebug() << "分片" << chunkIndex << "失败，正在重试第" << m_retryCounts[chunkIndex] << "次。原因:" << msg;
+        m_pendingChunks.prepend(chunkIndex);
+        sendNextChunks();
+        return;
+    }
+
+    // 3. 超过 3 次，彻底放弃，直接取消整个任务
+    cancelTask(QString("分片 %1 多次重试失败: %2").arg(chunkIndex).arg(msg));
 }
 
 void TtsManager::mergeAll()
@@ -184,7 +202,7 @@ void TtsManager::mergeAll()
         chunkFiles << getTempFilePath(i);
     }
 
-    // 2. 调用新函数，传入 2GB 作为阈值 (2LL * 1024 * 1024 * 1024),注意，单位是byte，字节
+    // 2. 调用函数，传入 2GB 作为阈值 (2LL * 1024 * 1024 * 1024),注意，单位是byte，字节
     QStringList outputFiles = WavUtils::mergeWavFilesSplit(
         chunkFiles, outputFilePath, 2LL * 1024 * 1024 * 1024);
 

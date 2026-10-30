@@ -192,9 +192,8 @@ void MainWindow::connectSignals()
     connect(m_ttsManager, &TtsManager::errorOccurred, this, &MainWindow::onSynthesisError);
 }
 
-// ==============================
+
 // 槽函数：读取文本文件
-// ==============================
 void MainWindow::readTxtFile()
 {
     QFile file(m_currentFilePath);
@@ -221,9 +220,8 @@ void MainWindow::readTxtFile()
     }
 }
 
-// ==============================
+
 // 槽函数：浏览输出目录
-// ==============================
 void MainWindow::onBrowseBtnClicked()
 {
     QString dir = QFileDialog::getExistingDirectory(
@@ -243,11 +241,18 @@ void MainWindow::onBrowseBtnClicked()
     }
 }
 
-// ==============================
+
 // 槽函数：开始合成
-// ==============================
 void MainWindow::onStartBtnClicked()
 {
+    // 如果当前是“中断”状态
+    if (m_startBtn->text() == "中断合成") {
+        m_startBtn->setEnabled(false); // 防抖：防止连点
+        m_statusLabel->setText("正在取消任务...");
+        m_ttsManager->cancelTask("用户主动中断");
+        return;
+    }
+
     if (m_currentFilePath.isEmpty() || m_outputDir.isEmpty()) {
         QMessageBox::warning(this, "提示", "请先选择文本文件和输出目录");
         return;
@@ -264,7 +269,9 @@ void MainWindow::onStartBtnClicked()
         QMessageBox::information(this, "提示", "语速输入不合法，已自动重置为1.0\n支持范围：0.5 ~ 2.0");
     }
 
-    m_startBtn->setEnabled(false);
+    // UI 状态切换
+    m_startBtn->setText("中断合成");
+    m_startBtn->setEnabled(true);   //保持启用状态，让用户随时能点取消
     m_browseBtn->setEnabled(false);
     m_confirmBtn->setEnabled(false);
     m_progressBar->setVisible(true);
@@ -274,9 +281,8 @@ void MainWindow::onStartBtnClicked()
     m_ttsManager->synthesizeFile(m_currentFilePath, m_outputDir, speakerId, speed);
 }
 
-// ==============================
+
 // 槽函数：加载音色列表
-// ==============================
 void MainWindow::loadVoiceOptions()
 {
     QUrl url("http://127.0.0.1:8000/speakers");
@@ -306,10 +312,10 @@ void MainWindow::onSpeakersLoaded()
         return;
     }
 
-    // ===== 成功：重置计数 =====
+    // 成功：重置计数
     m_voiceRetryCount = 0;
 
-    // ===== 下面就是你贴的解析逻辑 =====
+
     QByteArray data = reply->readAll();
     QJsonDocument doc = QJsonDocument::fromJson(data);
     QJsonArray speakers = doc.object()["speakers"].toArray();
@@ -328,9 +334,8 @@ void MainWindow::retryLoadVoiceOptions()
     loadVoiceOptions();
 }
 
-// ==============================
+
 // 槽函数：合成进度更新
-// ==============================
 void MainWindow::onSynthesisProgress(int current, int total)
 {
     m_progressBar->setMaximum(total);
@@ -338,15 +343,14 @@ void MainWindow::onSynthesisProgress(int current, int total)
     m_statusLabel->setText(QString("合成中：%1 / %2 分片").arg(current).arg(total));
 }
 
-// ==============================
-// 槽函数：合成成功
-// ==============================
+//合成成功
 void MainWindow::onSynthesisFinished(const QString& outputFile)
 {
     m_generateSuccess = true;
     m_statusLabel->setText("合成完成！文件已保存");
     m_progressBar->setVisible(false);
 
+    m_startBtn->setText("开始合成");   // 恢复文字
     m_startBtn->setEnabled(true);
     m_browseBtn->setEnabled(true);
     m_confirmBtn->setEnabled(true);
@@ -354,18 +358,21 @@ void MainWindow::onSynthesisFinished(const QString& outputFile)
     QMessageBox::information(this, "合成成功", "音频文件已保存至：\n" + outputFile);
 }
 
-// ==============================
-// 槽函数：合成失败
-// ==============================
+
+//合成失败
 void MainWindow::onSynthesisError(const QString& msg)
 {
     m_generateSuccess = false;
-    m_statusLabel->setText("合成失败");
+    m_statusLabel->setText("合成失败/已取消");
     m_progressBar->setVisible(false);
 
+    m_startBtn->setText("开始合成");   // 恢复文字
     m_startBtn->setEnabled(true);
     m_browseBtn->setEnabled(true);
     m_confirmBtn->setEnabled(true);
 
-    QMessageBox::critical(this, "合成失败", "错误信息：\n" + msg);
+    // 如果用户主动取消，我们其实不需要弹个大红叉的报错窗口
+    if (msg != "用户主动中断") {
+        QMessageBox::critical(this, "合成失败", "错误信息：\n" + msg);
+    }
 }

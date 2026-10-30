@@ -18,10 +18,16 @@ public:
     void synthesizeFile(const QString& inputFile, const QString& outputDir,
                         int speaker_id = 1, double speed = 1.0);
 
+    void cancelTask(const QString& reason);
+
 signals:
     void progressUpdated(int current, int total);
     void synthesisFinished(const QString& outputFile);
     void errorOccurred(const QString& msg);
+
+private slots:
+    void onChunkSuccess(int chunkIndex, const QByteArray& audioBase64);
+    void onChunkError(int chunkIndex, const QString& msg);
 
 private:
     void sendAllChunks(int speaker_id, double speed);
@@ -30,7 +36,7 @@ private:
     void cleanup();
 
     QVector<QString> chunks;
-    QMap<TtsClient*, int> m_clientMap; // 跟踪每个客户端对应的分片序号
+    TtsClient* m_client; // 跟踪每个客户端对应的分片序号
     int totalChunks;
     int receivedCount;
     bool failed;
@@ -44,6 +50,8 @@ private:
     int m_speakerId = 1;                         // 缓存参数
     double m_speed = 1.0;                        // 缓存参数
     void sendNextChunks();                       // 新增函数声明
+
+    QMap<int, int> m_retryCounts; // 记录每个分片失败的次数
 };
 
 #endif // TTSMANAGER_H

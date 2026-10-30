@@ -127,7 +127,7 @@ QStringList WavUtils::mergeWavFilesSplit(const QStringList& inputFiles,
             return outputFiles;
         }
 
-        //核心逻辑：如果加上这一片会超过 2GB，且箱子里已经有东西了
+        //如果加上这一片会超过 2GB，且箱子里已经有东西了
         if (!currentPcm.isEmpty() && (currentPcm.size() + pcm.size() > maxBytesPerFile)) {
             if (!flushPart()) return outputFiles; // 把当前的写出去，清空箱子
         }
